@@ -136,7 +136,7 @@
   .set + .set { border-top: 1px solid var(--line); }
   .set .lab { margin-bottom: 8px; display: block; }
   .seg { display: flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 3px; }
-  .seg button { flex: 1; min-height: 38px; border-radius: 8px; font-weight: 600; font-size: calc(13px * var(--fs)); color: var(--muted); }
+  .seg button { flex: 1; min-width: 0; min-height: 38px; padding: 0 2px; border-radius: 8px; font-weight: 600; font-size: calc(12px * var(--fs)); color: var(--muted); }
   .seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
   .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
   .swatch { width: 36px; height: 36px; border-radius: 999px; }
@@ -181,7 +181,7 @@
 <script>
 (() => {
   'use strict';
-  const BUILD = '2.1';
+  const BUILD = '2.2';
   const SB_URL = 'https://twfrvoelwdizseunrrzj.supabase.co';
   const SB_KEY = 'sb_publishable_4ZsqPQ8cCckNizfdbugc4w_F9PDlwvD';
   const K = { me: 'by:me', cache: 'by:cache', dirty: 'by:dirty', look: 'by:look' };
@@ -207,9 +207,10 @@
   const ACCENTS = { orange: '#FF6B1A', blue: '#3B82F6', green: '#22B573', purple: '#8B5CF6', red: '#EF4444', teal: '#14B8A6', pink: '#EC4899' };
   const FONTS = {
     clean: "-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif",
-    avenir: "'Avenir Next', Avenir, 'Century Gothic', 'Segoe UI', sans-serif",
-    serif: "ui-serif, 'New York', Georgia, serif",
-    mono: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
+    verdana: "Verdana, Geneva, sans-serif",
+    trebuchet: "'Trebuchet MS', 'Lucida Grande', sans-serif",
+    serif: "Georgia, 'Times New Roman', serif",
+    mono: "'Courier New', Courier, monospace"
   };
   const SIZES = { s: 0.9, m: 1, l: 1.12, xl: 1.25 };
   const LOOK_DEFAULT = { theme: 'dark', accent: 'orange', head: 'clean', body: 'clean', size: 'm' };
@@ -301,8 +302,9 @@
   async function sb(path, opts = {}) {
     const headers = Object.assign({ apikey: SB_KEY, 'Content-Type': 'application/json' }, opts.headers || {});
     const res = await fetch(SB_URL + path, Object.assign({}, opts, { headers }));
-    if (!res.ok) throw new Error((await res.text().catch(() => '')).slice(0, 120) || 'HTTP ' + res.status);
-    return res.status === 204 || res.status === 201 && opts.headers && /minimal/.test(opts.headers.Prefer || '') ? null : res.json();
+    const text = await res.text().catch(() => '');
+    if (!res.ok) throw new Error(text.slice(0, 120) || 'HTTP ' + res.status);
+    return text ? JSON.parse(text) : null;
   }
 
   function touchSession(s) { s.updated_at = now(); dirty.sessions[s.id] = 1; persist(); schedulePush(); }
@@ -536,7 +538,7 @@
 
   function viewSettings() {
     const L = myLook(), p = DB.people[me], c = ui.confirm;
-    const seg = (k, opts) => `<div class="seg">${opts.map(([v, t]) => `<button class="${L[k] === v ? 'on' : ''}" data-act="look" data-k="${k}" data-v="${v}">${t}</button>`).join('')}</div>`;
+    const seg = (k, opts) => `<div class="seg">${opts.map(([v, t]) => `<button class="${L[k] === v ? 'on' : ''}" data-act="look" data-k="${k}" data-v="${v}"${FONTS[v] && (k === 'head' || k === 'body') ? ` style="font-family:${FONTS[v].replace(/"/g, '')}"` : ''}>${t}</button>`).join('')}</div>`;
     return `<div class="hero"><h1>Settings</h1></div>
       <h2>Profile</h2><div class="card">
         <div class="set"><div class="spread row" style="justify-content:space-between"><div><div class="lab" style="margin:0">This phone is</div><div class="ex-name">${esc(p.name)}</div></div>
@@ -545,8 +547,8 @@
         <div class="set"><span class="lab">Mode</span>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}</div>
         <div class="set"><span class="lab">Accent color</span><div class="swatches">${Object.entries(ACCENTS).map(([k, v]) =>
           `<button class="swatch ${L.accent === k ? 'on' : ''}" style="background:${v}" data-act="look" data-k="accent" data-v="${k}" aria-label="${k}"></button>`).join('')}</div></div>
-        <div class="set"><span class="lab">Heading font</span>${seg('head', [['clean', 'Clean'], ['avenir', 'Avenir'], ['serif', 'Serif'], ['mono', 'Mono']])}
-          <span class="lab" style="margin-top:12px">Text font</span>${seg('body', [['clean', 'Clean'], ['avenir', 'Avenir'], ['serif', 'Serif'], ['mono', 'Mono']])}
+        <div class="set"><span class="lab">Heading font</span>${seg('head', [['clean', 'Clean'], ['verdana', 'Verdana'], ['trebuchet', 'Trebuchet'], ['serif', 'Georgia'], ['mono', 'Courier']])}
+          <span class="lab" style="margin-top:12px">Text font</span>${seg('body', [['clean', 'Clean'], ['verdana', 'Verdana'], ['trebuchet', 'Trebuchet'], ['serif', 'Georgia'], ['mono', 'Courier']])}
           <span class="lab" style="margin-top:12px">Text size</span>${seg('size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']])}
           <div class="sample"><b>Heading</b> · Body text looks like this.</div></div>
         <div class="set"><button class="btn btn-quiet" data-act="reset-look">Reset look</button></div></div>

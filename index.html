@@ -181,10 +181,10 @@
 <script>
 (() => {
   'use strict';
-  const BUILD = '2.0';
+  const BUILD = '2.1';
   const SB_URL = 'https://twfrvoelwdizseunrrzj.supabase.co';
   const SB_KEY = 'sb_publishable_4ZsqPQ8cCckNizfdbugc4w_F9PDlwvD';
-  const K = { code: 'by:code', me: 'by:me', cache: 'by:cache', dirty: 'by:dirty', look: 'by:look' };
+  const K = { me: 'by:me', cache: 'by:cache', dirty: 'by:dirty', look: 'by:look' };
   const WD = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   // ---------- storage ----------
@@ -194,7 +194,7 @@
     del(k) { try { localStorage.removeItem(k); } catch (e) {} }
   };
 
-  let code = ls.get(K.code, null);
+  ls.del('by:code');
   let me = ls.get(K.me, null);
   let DB = ls.get(K.cache, { people: {}, sessions: {} });
   let dirty = ls.get(K.dirty, { people: {}, sessions: {} });
@@ -207,7 +207,7 @@
   const ACCENTS = { orange: '#FF6B1A', blue: '#3B82F6', green: '#22B573', purple: '#8B5CF6', red: '#EF4444', teal: '#14B8A6', pink: '#EC4899' };
   const FONTS = {
     clean: "-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif",
-    rounded: "ui-rounded, 'SF Pro Rounded', -apple-system, system-ui, sans-serif",
+    avenir: "'Avenir Next', Avenir, 'Century Gothic', 'Segoe UI', sans-serif",
     serif: "ui-serif, 'New York', Georgia, serif",
     mono: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
   };
@@ -215,7 +215,9 @@
   const LOOK_DEFAULT = { theme: 'dark', accent: 'orange', head: 'clean', body: 'clean', size: 'm' };
   function myLook() {
     const p = DB.people[me];
-    return Object.assign({}, LOOK_DEFAULT, ls.get(K.look, {}), p && p.settings && p.settings.look);
+    const L = Object.assign({}, LOOK_DEFAULT, ls.get(K.look, {}), p && p.settings && p.settings.look);
+    if (!FONTS[L.head]) L.head = 'clean'; if (!FONTS[L.body]) L.body = 'clean';
+    return L;
   }
   function applyLook() {
     const L = myLook(), root = document.documentElement;
@@ -296,8 +298,8 @@
   }
 
   // ---------- sync ----------
-  async function sb(path, opts = {}, useCode = code) {
-    const headers = Object.assign({ apikey: SB_KEY, 'x-family-code': useCode || '', 'Content-Type': 'application/json' }, opts.headers || {});
+  async function sb(path, opts = {}) {
+    const headers = Object.assign({ apikey: SB_KEY, 'Content-Type': 'application/json' }, opts.headers || {});
     const res = await fetch(SB_URL + path, Object.assign({}, opts, { headers }));
     if (!res.ok) throw new Error((await res.text().catch(() => '')).slice(0, 120) || 'HTTP ' + res.status);
     return res.status === 204 || res.status === 201 && opts.headers && /minimal/.test(opts.headers.Prefer || '') ? null : res.json();
@@ -310,7 +312,7 @@
   function schedulePush() { clearTimeout(pushTimer); pushTimer = setTimeout(push, 1200); renderSync(); }
 
   async function push() {
-    if (!code || sync.busy) { if (sync.busy) schedulePush(); return; }
+    if (sync.busy) { schedulePush(); return; }
     const sIds = Object.keys(dirty.sessions), pIds = Object.keys(dirty.people);
     if (!sIds.length && !pIds.length) return;
     sync.busy = true;
@@ -336,14 +338,13 @@
   }
 
   async function pull() {
-    if (!code) return;
     try {
       await push();
       const [ppl, ses] = await Promise.all([
         sb('/rest/v1/by_people?select=*'),
         sb('/rest/v1/by_sessions?select=*&order=date.desc&limit=5000')
       ]);
-      if (!ppl.length) { sync.err = 'Family code no longer works'; renderSync(); return; }
+      if (!ppl.length) { sync.err = 'No people found'; renderSync(); return; }
       const nextP = {};
       for (const p of ppl) nextP[p.id] = dirty.people[p.id] && DB.people[p.id] ? DB.people[p.id] : p;
       const nextS = {};
@@ -353,7 +354,7 @@
       sync.at = new Date(); sync.err = null; persist();
       if (!DB.people[me]) { me = null; ls.del(K.me); }
       applyLook(); render();
-    } catch (e) { sync.err = navigator.onLine === false ? 'Offline' : e.message; renderSync(); }
+    } catch (e) { sync.err = navigator.onLine === false ? 'Offline' : e.message; if (!people().length) render(); else renderSync(); }
   }
 
   function syncText() {
@@ -372,7 +373,6 @@
   function render() {
     applyLook();
     const tabs = $('#tabs');
-    if (!code) { tabs.classList.add('hide'); $('#app').innerHTML = viewCode(); return; }
     if (!me || !DB.people[me] || ui.picking) { tabs.classList.add('hide'); $('#app').innerHTML = viewPick(); return; }
     if (!DB.people[ui.view]) ui.view = me;
     tabs.classList.remove('hide');
@@ -391,14 +391,9 @@
     return h;
   }
 
-  function viewCode() {
-    return `<div class="gate"><h1>Better Yourself</h1><div class="muted">Enter the family code.</div>
-      <input class="field" id="code-in" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Family code">
-      <div class="err">${esc(ui.gateErr)}</div>
-      <button class="btn btn-accent btn-wide" data-act="code">Continue</button></div>`;
-  }
-
   function viewPick() {
+    if (!people().length) return `<div class="gate"><h1>Better Yourself</h1><div class="${sync.err ? 'err' : 'muted'}">${sync.err ? 'Could not load: ' + esc(sync.err) : 'Loading…'}</div>
+      ${sync.err ? '<button class="btn btn-accent btn-wide" data-act="sync-now">Try again</button>' : ''}</div>`;
     return `<div class="gate"><h1>Who are you?</h1><div class="muted">This phone will open as you. You can still look at everyone else.</div>
       <div class="list">${people().map(p => `<button class="card pick" data-act="pick" data-p="${p.id}">${esc(p.name)}<span class="muted">›</span></button>`).join('')}</div>
       ${me && DB.people[me] ? `<button class="btn btn-quiet btn-wide" data-act="pick-cancel">Cancel</button>` : ''}</div>`;
@@ -462,7 +457,7 @@
       return `<div class="hero"><h1>Log</h1></div><div class="empty"><div style="margin-bottom:12px">No workout open.</div>
         ${lifts.map(x => `<button class="btn btn-accent btn-wide mt" data-act="open" data-day="${x.id}" data-date="${today()}">Start ${esc(x.label)} today</button>`).join('')}</div>`;
     }
-    const R = ro(), dis = R ? 'disabled' : '', u = (p.units || 'lb').toUpperCase();
+    const R = ro(), dis = R ? 'disabled' : '';
     let h = `<div class="hero"><div><div class="kicker">${WD[d.wd]} · ${short(s.date)}</div><h1>${esc(d.label)}</h1></div>
       <button class="btn btn-quiet" data-act="tab" data-tab="week">Week</button></div><div class="list">`;
     for (const e of d.ex) {
@@ -473,7 +468,7 @@
       h += `<div class="card ex" data-ex="${e.id}"><div class="ex-head"><div><div class="ex-name">${esc(e.name)}</div>
         <div class="ex-meta">${e.sets} sets · ${e.lo}–${e.hi} reps</div></div>${up ? '<span class="badge">GO UP</span>' : ''}</div>
         <div class="last">${prev ? `Last · ${short(prev.date)}: <b class="num">${loggedSets(prevSets).map(fmtSet).join('  ')}</b>` : 'No previous sets'}</div>
-        <table class="sets"><thead><tr><th></th><th>${u}</th><th>Reps</th><th>RIR</th></tr></thead><tbody>`;
+        <table class="sets"><thead><tr><th></th><th>LB</th><th>Reps</th><th>RIR</th></tr></thead><tbody>`;
       for (let n = 0; n < e.sets; n++) {
         const c = cur[n] || {}, q = R ? {} : prevSets[n] || {};
         const hit = has(c.r) && Number(c.r) >= e.hi;
@@ -492,7 +487,7 @@
   }
 
   function viewLifts() {
-    const p = P(), lifts = program(p).days.filter(x => x.kind === 'lift'), u = p.units || 'lb';
+    const p = P(), lifts = program(p).days.filter(x => x.kind === 'lift');
     let h = `<div class="hero"><div><div class="kicker">${esc(p.name)}</div><h1>Lifts</h1></div></div>`;
     if (!lifts.length) return h + `<div class="empty">No lifting days in this program.</div>`;
     for (const d of lifts) {
@@ -501,7 +496,7 @@
         const hist = historyFor(p.id, e.id), last = hist[0], best = bestSet(p.id, e.id);
         const up = last && goUp(e, last.sets[e.id]);
         h += `<details class="card prog"><summary><div class="ex-head"><div class="ex-name">${esc(e.name)}</div>${up ? '<span class="badge">GO UP</span>' : ''}</div>
-          ${last ? `<div class="stat">Best <b class="num">${best.w ? best.w + ' ' + u : 'BW'} × ${best.r}</b> <span class="muted">· ${short(best.date)}</span></div>
+          ${last ? `<div class="stat">Best <b class="num">${best.w ? best.w + ' lb' : 'BW'} × ${best.r}</b> <span class="muted">· ${short(best.date)}</span></div>
             <div class="last">Last: <span class="num">${loggedSets(last.sets[e.id]).map(fmtSet).join('  ')}</span></div>` : '<div class="last">Not logged yet</div>'}
           </summary>${hist.length ? `<div class="hist">${hist.slice(0, 5).map(s => `<div><span class="muted">${short(s.date)}</span>&nbsp;&nbsp;<span class="num">${loggedSets(s.sets[e.id]).map(x => fmtSet(x) + (has(x.rir) ? '@' + x.rir : '')).join('  ')}</span></div>`).join('')}</div>` : ''}</details>`;
       }
@@ -550,20 +545,15 @@
         <div class="set"><span class="lab">Mode</span>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}</div>
         <div class="set"><span class="lab">Accent color</span><div class="swatches">${Object.entries(ACCENTS).map(([k, v]) =>
           `<button class="swatch ${L.accent === k ? 'on' : ''}" style="background:${v}" data-act="look" data-k="accent" data-v="${k}" aria-label="${k}"></button>`).join('')}</div></div>
-        <div class="set"><span class="lab">Heading font</span>${seg('head', [['clean', 'Clean'], ['rounded', 'Rounded'], ['serif', 'Serif'], ['mono', 'Mono']])}
-          <span class="lab" style="margin-top:12px">Text font</span>${seg('body', [['clean', 'Clean'], ['rounded', 'Rounded'], ['serif', 'Serif'], ['mono', 'Mono']])}
+        <div class="set"><span class="lab">Heading font</span>${seg('head', [['clean', 'Clean'], ['avenir', 'Avenir'], ['serif', 'Serif'], ['mono', 'Mono']])}
+          <span class="lab" style="margin-top:12px">Text font</span>${seg('body', [['clean', 'Clean'], ['avenir', 'Avenir'], ['serif', 'Serif'], ['mono', 'Mono']])}
           <span class="lab" style="margin-top:12px">Text size</span>${seg('size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']])}
           <div class="sample"><b>Heading</b> · Body text looks like this.</div></div>
         <div class="set"><button class="btn btn-quiet" data-act="reset-look">Reset look</button></div></div>
-      <h2>Training</h2><div class="card">
-        <div class="set"><span class="lab">Weight units</span><div class="seg">
-          <button class="${(p.units || 'lb') === 'lb' ? 'on' : ''}" data-act="units" data-u="lb">LB</button>
-          <button class="${p.units === 'kg' ? 'on' : ''}" data-act="units" data-u="kg">KG</button></div>
-          <div class="muted small mt">Label only. For dumbbells, log the weight of one dumbbell.</div></div></div>
       <h2>Data</h2><div class="card">
-        <div class="set"><div class="muted small" style="margin-bottom:10px">Everything syncs to the family database. Export keeps your own copy.</div>
+        <div class="set"><div class="muted small" style="margin-bottom:10px">Everything syncs automatically. Export saves your own copy.</div>
           <div class="row"><button class="btn" style="flex:1" data-act="export">Export</button><button class="btn" style="flex:1" data-act="sync-now">Sync now</button></div></div>
-        <div class="set"><button class="btn btn-wide ${c === 'leave' ? 'btn-danger' : 'btn-quiet'}" data-act="leave">${c === 'leave' ? 'Sure? You will need the code again' : 'Sign out of family'}</button></div></div>
+</div>
       <div class="sync">Build ${BUILD}</div>`;
   }
 
@@ -576,28 +566,15 @@
   }
   const findEx = (dayId, exId) => { const d = dayById(DB.people[me], dayId); return d && d.ex.find(e => e.id === exId); };
 
-  async function tryCode() {
-    const v = ($('#code-in').value || '').trim().toLowerCase();
-    if (!v) return;
-    ui.gateErr = ''; const btn = $('[data-act=code]'); btn.disabled = true; btn.textContent = 'Checking…';
-    try {
-      const rows = await sb('/rest/v1/by_people?select=id', {}, v);
-      if (!rows.length) { ui.gateErr = 'Wrong code.'; }
-      else { code = v; ls.set(K.code, v); await pull(); }
-    } catch (e) { ui.gateErr = navigator.onLine === false ? 'No internet connection.' : 'Could not reach the database: ' + e.message; }
-    render();
-  }
-
   document.addEventListener('click', ev => {
     const b = ev.target.closest('button'); if (!b) return;
     if (b.parentElement.id === 'tabs') { ui.tab = b.dataset.tab; ui.settings = false; ui.confirm = null; render(); scrollTo(0, 0); return; }
     const a = b.dataset.act; if (!a) return;
     ev.stopPropagation();
     const { day, date, ex: exId } = b.dataset, n = Number(b.dataset.n);
-    if (!['delex', 'leave'].includes(a) && ui.confirm) ui.confirm = null;
+    if (a !== 'delex' && ui.confirm) ui.confirm = null;
     const mine = DB.people[me];
     switch (a) {
-      case 'code': tryCode(); return;
       case 'pick': me = b.dataset.p; ls.set(K.me, me); ui.view = me; ui.picking = false; ui.settings = false; ui.open = null; break;
       case 'pick-cancel': ui.picking = false; break;
       case 'repick': ui.picking = true; break;
@@ -629,16 +606,12 @@
         d.ex.push({ id: 'x' + (pr.nextId++), name: 'New exercise', sets: 3, lo: 8, hi: 12 }); touchPerson(mine); break; }
       case 'look': setLook(b.dataset.k, b.dataset.v); break;
       case 'reset-look': { mine.settings = mine.settings || {}; mine.settings.look = Object.assign({}, LOOK_DEFAULT); touchPerson(mine); break; }
-      case 'units': mine.units = b.dataset.u; touchPerson(mine); break;
       case 'export': exportData(); return;
-      case 'sync-now': pull().then(() => toast(sync.err ? 'Sync failed' : 'Synced')); return;
-      case 'leave': { if (!armConfirm('leave')) return; code = null; me = null; ls.del(K.code); ls.del(K.me); ls.del(K.cache); ls.del(K.dirty);
-        DB = { people: {}, sessions: {} }; dirty = { people: {}, sessions: {} }; ui.settings = false; break; }
+      case 'sync-now': pull().then(() => { toast(sync.err ? 'Sync failed' : 'Synced'); render(); }); return;
     }
     render();
   });
 
-  document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.id === 'code-in') tryCode(); });
 
   // inputs save without re-rendering so focus stays put
   document.addEventListener('input', ev => {

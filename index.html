@@ -181,7 +181,7 @@
 <script>
 (() => {
   'use strict';
-  const BUILD = '2.2';
+  const BUILD = '2.3';
   const SB_URL = 'https://twfrvoelwdizseunrrzj.supabase.co';
   const SB_KEY = 'sb_publishable_4ZsqPQ8cCckNizfdbugc4w_F9PDlwvD';
   const K = { me: 'by:me', cache: 'by:cache', dirty: 'by:dirty', look: 'by:look' };
@@ -283,11 +283,11 @@
       .filter(s => loggedSets(s.sets[exId]).length && (!beforeDate || s.date < beforeDate))
       .sort((a, b) => b.date.localeCompare(a.date));
   }
-  // progression rule: every working set at the top of the range, at least 1 rep in reserve
+  // progression rule: every working set at the top of the rep range
   function goUp(e, arr) {
     const sets = loggedSets(arr);
     if (sets.length < e.sets) return false;
-    return sets.every(s => Number(s.r) >= e.hi && (!has(s.rir) || Number(s.rir) >= 1));
+    return sets.every(s => Number(s.r) >= e.hi);
   }
   function bestSet(pid, exId) {
     let best = null;
@@ -470,14 +470,13 @@
       h += `<div class="card ex" data-ex="${e.id}"><div class="ex-head"><div><div class="ex-name">${esc(e.name)}</div>
         <div class="ex-meta">${e.sets} sets · ${e.lo}–${e.hi} reps</div></div>${up ? '<span class="badge">GO UP</span>' : ''}</div>
         <div class="last">${prev ? `Last · ${short(prev.date)}: <b class="num">${loggedSets(prevSets).map(fmtSet).join('  ')}</b>` : 'No previous sets'}</div>
-        <table class="sets"><thead><tr><th></th><th>LB</th><th>Reps</th><th>RIR</th></tr></thead><tbody>`;
+        <table class="sets"><thead><tr><th></th><th>LB</th><th>Reps</th></tr></thead><tbody>`;
       for (let n = 0; n < e.sets; n++) {
         const c = cur[n] || {}, q = R ? {} : prevSets[n] || {};
         const hit = has(c.r) && Number(c.r) >= e.hi;
         h += `<tr class="${hit ? 'hit' : ''}"><td>${n + 1}</td>
           <td><input ${dis} inputmode="decimal" data-f="w" data-n="${n}" value="${esc(c.w)}" placeholder="${esc(q.w ?? '')}"></td>
-          <td><input ${dis} inputmode="numeric" data-f="r" data-n="${n}" value="${esc(c.r)}" placeholder="${esc(q.r ?? '')}"></td>
-          <td><input ${dis} inputmode="numeric" data-f="rir" data-n="${n}" value="${esc(c.rir)}" placeholder="${esc(q.rir ?? '')}"></td></tr>`;
+          <td><input ${dis} inputmode="numeric" data-f="r" data-n="${n}" value="${esc(c.r)}" placeholder="${esc(q.r ?? '')}"></td></tr>`;
       }
       h += `</tbody></table>${prev && !R ? `<div class="ex-acts"><button class="btn btn-quiet" data-act="copy" data-ex="${e.id}">Copy last</button></div>` : ''}</div>`;
     }
@@ -500,7 +499,7 @@
         h += `<details class="card prog"><summary><div class="ex-head"><div class="ex-name">${esc(e.name)}</div>${up ? '<span class="badge">GO UP</span>' : ''}</div>
           ${last ? `<div class="stat">Best <b class="num">${best.w ? best.w + ' lb' : 'BW'} × ${best.r}</b> <span class="muted">· ${short(best.date)}</span></div>
             <div class="last">Last: <span class="num">${loggedSets(last.sets[e.id]).map(fmtSet).join('  ')}</span></div>` : '<div class="last">Not logged yet</div>'}
-          </summary>${hist.length ? `<div class="hist">${hist.slice(0, 5).map(s => `<div><span class="muted">${short(s.date)}</span>&nbsp;&nbsp;<span class="num">${loggedSets(s.sets[e.id]).map(x => fmtSet(x) + (has(x.rir) ? '@' + x.rir : '')).join('  ')}</span></div>`).join('')}</div>` : ''}</details>`;
+          </summary>${hist.length ? `<div class="hist">${hist.slice(0, 5).map(s => `<div><span class="muted">${short(s.date)}</span>&nbsp;&nbsp;<span class="num">${loggedSets(s.sets[e.id]).map(fmtSet).join('  ')}</span></div>`).join('')}</div>` : ''}</details>`;
       }
       h += `</div>`;
     }
@@ -580,7 +579,7 @@
       case 'pick': me = b.dataset.p; ls.set(K.me, me); ui.view = me; ui.picking = false; ui.settings = false; ui.open = null; break;
       case 'pick-cancel': ui.picking = false; break;
       case 'repick': ui.picking = true; break;
-      case 'view': ui.view = b.dataset.p; ui.settings = false; if (ui.open && DB.sessions[ui.open]?.person_id !== ui.view) ui.open = null; scrollTo(0, 0); break;
+      case 'view': if (ui.view !== b.dataset.p && ui.tab === 'log') ui.tab = 'week'; ui.view = b.dataset.p; ui.settings = false; if (ui.open && DB.sessions[ui.open]?.person_id !== ui.view) ui.open = null; scrollTo(0, 0); break;
       case 'settings': ui.settings = !ui.settings; scrollTo(0, 0); break;
       case 'tab': ui.tab = b.dataset.tab; break;
       case 'wk': ui.week = addDays(ui.week, n); break;
@@ -595,7 +594,7 @@
         const s = DB.sessions[ui.open], prev = historyFor(me, exId, s.date)[0];
         if (prev) {
           const src = prev.sets[exId] || [], dst = s.sets[exId] = s.sets[exId] || [];
-          src.forEach((q, i) => { if (!dst[i] || !has(dst[i].r)) dst[i] = { w: q.w ?? '', r: q.r ?? '', rir: q.rir ?? '' }; });
+          src.forEach((q, i) => { if (!dst[i] || !has(dst[i].r)) dst[i] = { w: q.w ?? '', r: q.r ?? '' }; });
           touchSession(s);
         }
         break;
@@ -623,7 +622,7 @@
     if (t.dataset.f && s) {
       const exId = t.closest('.ex').dataset.ex, n = Number(t.dataset.n);
       const arr = s.sets[exId] = s.sets[exId] || [];
-      arr[n] = arr[n] || { w: '', r: '', rir: '' };
+      arr[n] = arr[n] || { w: '', r: '' };
       arr[n][t.dataset.f] = t.value.trim().replace(',', '.');
       const e = dayById(DB.people[me], s.day_id).ex.find(x => x.id === exId);
       t.closest('tr').classList.toggle('hit', has(arr[n].r) && Number(arr[n].r) >= e.hi);
